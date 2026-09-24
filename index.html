@@ -67,7 +67,8 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
 .key.pressed canvas { filter: invert(1); }
 @media (prefers-color-scheme: light) { .key.pressed canvas { filter: invert(1) sepia(.2); } }
 .key:focus-visible { outline: 2px dashed var(--key-ink); outline-offset: 3px; }
-#menuKey { flex: 0 0 auto; }
+#menuKey { flex: 0 0 auto; margin-right: calc(3px + var(--gap)); }
+#dbar .key { min-width: 0; padding-left: 4px; padding-right: 4px; }
 .dpad { display: grid; gap: var(--gap); }
 .dpad .key { width: 64px; height: 56px; }
 .dpad.cross { grid-template-areas: ". up ." "left . right" ". down ."; }
@@ -87,7 +88,7 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
 @media (orientation: landscape) {
   #app { flex-direction: row; }
   #screenwrap { flex: 1 1 auto; height: auto; max-height: none; }
-  #deck { flex: 0 0 min(300px, 40vw); }
+  #deck { flex: 0 0 min(360px, 45vw); }
   #dbar { flex-wrap: wrap; }
   .keypad { grid-template-columns: repeat(3, 56px); }
   .keypad .key { height: 42px; min-height: 40px; }
@@ -117,7 +118,7 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
   <div id="screenwrap"><canvas id="screen" width="280" height="192" aria-label="Game screen"></canvas></div>
   <div id="deck">
     <div id="dmain"></div>
-    <div id="dbar"><div id="dutil"></div><button id="menuKey" class="key" type="button" aria-label="Main Menu"></button></div>
+    <div id="dbar"><button id="menuKey" class="key" type="button" aria-label="Main Menu"></button><div id="dutil"></div></div>
   </div>
 </div>
 <script>
@@ -295,8 +296,8 @@ async function pause(ms) {
 async function pleaseWait(t = 'Please Wait...') { clrw(); vtab(10); htab(12); pr(t); await sleep(250); }
 async function getKey(opts = {}) {
   curOpts = opts; hot = opts.hot || [];
-  setDeck(opts);
   for (;;) {
+    if (!keyQ.length) setDeck(opts);
     if (keyQ.length) {
       const c = keyQ.shift();
       if (c === 5 && !opts.rawE) { flushKeys(); G.p8040 = 0; await pleaseWait(); throw new Run('MUN'); }
@@ -396,7 +397,7 @@ function mkKey(label, code, cls = '', aria) {
   b.setAttribute('aria-label', aria || label);
   b.appendChild(glyphLabel(label));
   let t1 = null, t2 = null;
-  const fire = () => pushKey(code);
+  const fire = () => pushKey(...[].concat(code));
   const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove('pressed'); keyStops.delete(stop); };
   b.addEventListener('pointerdown', e => {
     e.preventDefault(); b.classList.add('pressed'); keyStops.add(stop); fire();
@@ -413,7 +414,7 @@ window.addEventListener('blur', stopAllKeys);
 document.addEventListener('visibilitychange', stopAllKeys);
 let lastDeckSig = '';
 function setDeck(o) {
-  const sig = JSON.stringify([o.digits, o.dot, o.minus, o.yn, o.lr, o.ud, o.ret, o.del, o.esc, o.help, o.any, o.menuOff, ink()]);
+  const sig = JSON.stringify([o.digits, o.pick, o.dot, o.minus, o.yn, o.lr, o.ud, o.ret, o.okLabel, o.del, o.esc, o.escLabel, o.help, o.any, o.menuOff, ink()]);
   if (sig === lastDeckSig) return;
   lastDeckSig = sig;
   stopAllKeys();
@@ -433,27 +434,28 @@ function setDeck(o) {
     for (const d of '789456123') pad.appendChild(mkKey(d, d.charCodeAt(0)));
     pad.appendChild(o.dot ? mkKey('.', 46, '', 'Point') : spacer());
     pad.appendChild(mkKey('0', 48));
-    pad.appendChild(o.minus ? mkKey('-', 45, '', 'Minus') : spacer());
+    pad.appendChild(o.del ? mkKey('Del', 8, 'rep', 'Delete') : spacer());
+    if (o.minus) pad.appendChild(mkKey('-', 45, '', 'Minus'));
     main.appendChild(pad);
   } else if (o.digits) {
     const row = document.createElement('div'); row.className = 'digits n' + o.digits.length;
-    for (const d of o.digits) row.appendChild(mkKey(d, d.charCodeAt(0)));
+    for (const d of o.digits) row.appendChild(mkKey(d, o.pick ? [d.charCodeAt(0), 13] : d.charCodeAt(0)));
     main.appendChild(row);
   }
   if (o.yn) {
     const row = document.createElement('div'); row.className = 'yn';
-    row.appendChild(mkKey('Yes', 89)); row.appendChild(mkKey('No', 78));
+    row.appendChild(mkKey('Yes', [89, 13])); row.appendChild(mkKey('No', [78, 13]));
     main.appendChild(row);
   }
   if (o.any) {
     const row = document.createElement('div'); row.className = 'yn';
-    row.appendChild(mkKey('Skip', 32, 'wide'));
+    row.appendChild(mkKey('Start', 13, 'wide'));
     main.appendChild(row);
   }
-  if (o.esc) util.appendChild(mkKey('ESC', 27, 'small', 'Escape, go back'));
-  if (o.del) util.appendChild(mkKey('DEL', 8, 'small', 'Delete'));
+  if (o.esc) { const l = o.escLabel || 'Back'; util.appendChild(mkKey(l, 27, 'small', l)); }
+  if (o.del && o.digits !== 'pad') util.appendChild(mkKey('Del', 8, 'small', 'Delete'));
   if (o.help) util.appendChild(mkKey('Help', 72, 'small', 'Help'));
-  if (o.ret) util.appendChild(mkKey('RETURN', 13, 'ret', 'Return'));
+  if (o.ret) { const l = o.okLabel || 'OK'; util.appendChild(mkKey(l, 13, 'ret', l)); }
 }
 function spacer() { const s = document.createElement('div'); s.className = 'spacer'; return s; }
 function rebuildLabels() {
@@ -476,9 +478,9 @@ function lines(arr, center = centerD) {
 }
 // "Press RETURN to continue." – returns true when ESC (BS=1)
 async function waitRet(esc = true, extra = {}) {
-  htab(8); vtab(23); pr('Press RETURN to continue.'); vtab(1);
+  htab(10); vtab(23); pr('Tap Next to continue.'); vtab(1);
   for (;;) {
-    const k = await getKey({ ret: true, esc, tap: true, ...extra });
+    const k = await getKey({ ret: true, okLabel: 'Next', esc, tap: true, ...extra });
     if (k === 13 || k === 33) return false;
     if (k === 27 && esc) return true;
   }
@@ -500,7 +502,7 @@ async function menuInput(v, h, max, hotRows, opts = {}) {
   const min = opts.min || 1;
   const digits = opts.digits || Array.from({ length: max - min + 1 }, (_, i) => String(i + min)).join('');
   for (;;) {
-    const k = await getKey({ digits, del: true, ret: true, esc: !!opts.esc, hot: hotRows, menuOff: opts.menuOff });
+    const k = await getKey({ digits, pick: true, esc: !!opts.esc, hot: hotRows, menuOff: opts.menuOff });
     const a = chr(k);
     if (k === 27 && opts.esc) return 'esc';
     if (k === 8 || k === 127) { if (B === '') continue; B = ''; vtab(v); htab(h); pr(chr(127), '  '); continue; }
@@ -528,13 +530,11 @@ async function START() {
     hcolor(0); hplot(230, 159, 278, 159);
     if (!skip && await pause(220)) skip = true;
   }
-  if (skip) { flushKeys(); cls();
-    for (let A = 1; A <= 6; A++) blit(H[INT(A / 4)], P[A - 1], 80 - INT(A / 6), 10, 11, 32768 + (A - 1) * 880);
-    hcolor(0); hplot(230, 159, 278, 159);
-  }
+  flushKeys();
+  if (skip) throw new Run('MUN');   // Start tapped during the animation: go straight in
   WT = 20; clearWin(); WT = 0;
   vtab(22); htab(2); pn("Designed by:  Thomas C. O'Brien III"); htab(16); pn('and Michael L. Roney');
-  await pause(skip ? 1200 : 2600);
+  await getKey({ any: true, menuOff: true, hot: [{ x0: 0, y0: 0, x1: 280, y1: 192, k: [13] }] });
   flushKeys();
   throw new Run('MUN');
 }
@@ -554,7 +554,7 @@ async function MUN() {
       vtab(10); items.forEach((t, i) => { htab(10); pn(t); if (i < 5) pn(); });
       htab(4); vtab(6); pr('Which would you like? ', chr(127));
       const hr = items.map((t, i) => rowHot(10 + i * 2, 9, 32, [49 + i, 13]));
-      const B = await menuInput(6, 26, 6, hr);
+      const B = await menuInput(6, 26, 6, hr, { menuOff: true });
       clrw(); vtab(4);
       FC = VAL(B);
       if (FC === 5) { if (await descriptions()) { FC = 0; continue; } FC = 0; continue; }
@@ -585,8 +585,8 @@ async function descriptions() {
     () => { vtab(1); htab(5); pr('          Descriptions         '); vtab(3);
       lines(["CADET'S MISSION", 'The Cadet\'s Mission tests your', 'understanding of the Cadet\'s Briefing.', 'In this section, you practice', 'building planets.', '^You determine the characteristics', 'of the planet by selecting its', 'distance from its star, its mass,', 'its composition and other details.']); },
     () => { vtab(3); lines(["CAPTAIN'S MISSION", "The Captain's Mission is the final", 'test for graduation from the Corps.', 'In this section, you must design', 'a suitable planet for a group', 'of aliens whose home planets have', 'become uninhabitable.', '^Some of these aliens have never been', 'seen, so no pictures are available.']); },
-    () => { vtab(3); lines(['Miscellaneous Information', '^When you see this symbol - []', 'it means that by pressing the H key', 'you can get some help.', '^Whenever you see any of the arrow', 'keys (# $ { or &), you should', 'move to your choice using', 'the arrow keys (or the A Z keys)', 'then press RETURN.']); },
-    () => { vtab(3); lines(['Miscellaneous Information', '^When you are given several', 'information screens in a row, you', 'can press the ESC key', 'to back up to the previous screen.', '^If you should wish to exit the', 'program or use another level, hold', 'the CONTROL key and then press the', 'E-key at the same.']); },
+    () => { vtab(3); lines(['Miscellaneous Information', '^When you see this symbol - []', 'it means that you can tap Help', 'to get some help.', '^Whenever you see the arrows', '(# $ { or &), use the arrow buttons', 'or tap your choice on the screen,', 'then tap OK.']); },
+    () => { vtab(3); lines(['Miscellaneous Information', '^When you are given several', 'information screens in a row, you', 'can tap Back to go back', 'to the previous screen.', '^If you want to stop what you are', 'doing and use another level,', 'tap Menu at any time.']); },
   ];
   await pages(pg, C);
   return true;
@@ -595,7 +595,7 @@ async function theEnd() {
   let B = '';
   vtab(9); htab(2); pn('Would you like to'); htab(2); pr('use another disk? ', chr(127));
   for (;;) {
-    const k = await getKey({ yn: true, del: true, ret: true });
+    const k = await getKey({ yn: true });
     const a = chr(k);
     if (!(k === 8 || k === 13 || k === 127 || 'YNyn'.includes(a))) continue;
     if (B === '' && (k === 13 || k === 8 || k === 127)) continue;
@@ -607,7 +607,7 @@ async function theEnd() {
   }
   clrw(); vtab(4);
   if (B === 'Y') {
-    vtab(10); htab(3); pr('Insert the disk and press a key.');
+    vtab(10); htab(3); pr('Insert the disk and tap OK.');
     await getKey({ ret: true, tap: true, menuOff: true, rawE: true }); flushKeys();
     cls(); throw new Run('START');
   }
@@ -706,7 +706,7 @@ async function LEVELONE() {
       hplot(122, 32, 122, 30, 123, 30, 123, 32); hplot(172, 32, 172, 30, 173, 30, 173, 32); hplot(222, 32, 222, 30, 223, 30, 223, 32);
       for (let a = 0; a <= 14; a++) { vtab(a + 5); htab(4); pr(ELN[a]); htab(15); if (a !== 14) pn(SYM[a]); }
       vtab(22); htab(2); pr('Use  # $ & {  keys to move indicators');
-      vtab(23); htab(7); pr('Press Return key when done.'); htab(19); vtab(4); pr('0%'); vtab(4); htab(26); pr('50%'); vtab(4); htab(33); pr('100%');
+      vtab(23); htab(12); pr('Tap OK when done.'); htab(19); vtab(4); pr('0%'); vtab(4); htab(26); pr('50%'); vtab(4); htab(33); pr('100%');
       const TP = (LE === 7 ? L.AM[mk] : L.OP[mk]).map(v => v || 0);
       let TA = LE === 7 ? 10 : 0;
       for (let a = 0; a <= 14; a++) {
@@ -762,13 +762,13 @@ async function LEVELONE() {
         }
       }
       if (result === 'help') {
-        const keys = 'arrow keys';
+        const keys = 'arrow buttons';
         await helpPage(['You should choose the', 'elements that the planet' + (LE === 7 ? "'s atmosphere" : ''), 'is composed of. In order to set the',
-          'composition, use the ' + keys, 'to move the markers and press', 'the RETURN key when done.', '^When you remove some of an element,',
+          'composition, use the ' + keys, 'to move the markers and tap', 'OK when done.', '^When you remove some of an element,',
           'a bar will remain to indicate the', 'amount of that element that was', 'there before you removed any.', '']);
         await helpPage(['When you are adding to an element,', 'you must remember that', 'the total composition of the planet',
           'can only add up to 100%.', '^After that, you will not be able to', 'add any elements until you have', 'removed some of another element.']);
-        vtab(5); htab(3); pn('If you wish to set the markers to a'); htab(3); pn('particular planet, press the number'); htab(4); pn('that corresponds to that planet'); htab(9); pn('when you return to the'); htab(10); pn('composition screen.');
+        vtab(5); htab(3); pn('If you wish to set the markers to a'); htab(3); pn('particular planet, tap the number'); htab(4); pn('that corresponds to that planet'); htab(9); pn('when you return to the'); htab(10); pn('composition screen.');
         for (let a = 0; a <= 8; a++) { htab(6); vtab(12 + a); pr(a + 1, '   ', PLN[a]); }
         await waitRet(false); clrw();
         continue;
@@ -858,7 +858,7 @@ async function LEVELONE() {
         blit(30, 3, 20, 35, 36, 0x1330);
         pr(chr(20)); vtab(8); for (let z = 1; z <= 7; z++) { htab(5 * z + 1); pr(STN[z]); }
         if (ST !== 0) HP = ST;
-        pr(chr(18)); htab(6); vtab(16); pr('Use  & {  keys to move selector.'); htab(4); vtab(18); pr('Press RETURN key to make selection.');
+        pr(chr(18)); htab(6); vtab(16); pr('Use  & {  keys to move selector.'); htab(6); vtab(18); pr('Tap OK to make your selection.');
         arrow();
       };
       const arrow = () => blit(80, HP > 7 ? HP * 5 - 5 : HP * 5 - 1, 13, 2, 24, 0x1015);
@@ -947,7 +947,7 @@ async function LEVELONE() {
         else continue;
         let back = false;
         for (;;) {
-          const k2 = await getKey({ ret: true, del: true, esc: true });
+          const k2 = await getKey({ yn: true, esc: true });
           if (k2 === 13) break;
           if (k2 === 27) { C = ''; break; }
           if (k2 === 8 || k2 === 127) { htab(24); vtab(9); pr('    '); back = true; break; }
@@ -1166,7 +1166,7 @@ async function CONSTRUCT() {
   async function yesNo(VS, HS) {
     let B = '';
     for (;;) {
-      const k = await getKey({ yn: true, del: true, ret: true });
+      const k = await getKey({ yn: true });
       const a = chr(k);
       if (!(k === 13 || k === 8 || k === 127 || 'YyNn'.includes(a))) continue;
       if ((k === 13 || k === 8 || k === 127) && B === '') continue;
@@ -1311,7 +1311,7 @@ async function ALIENS() {
     for (;;) {
       let digits = mode.sf ? '1234' : mode.cf ? '12' : '123';
       if (OP) digits = 'pad';
-      const k = await getKey({ digits, del: true, ret: true, esc: true, hot: OP ? [] : hotRows });
+      const k = await getKey(OP ? { digits, del: true, ret: true, esc: true } : { digits, pick: true, esc: true, hot: hotRows });
       if (k === 27) return 'esc';
       if (k === 20) {                                      // CTRL-T: pick any alien by number
         if (mode.sf || mode.cf || B !== '') continue;
@@ -1445,8 +1445,8 @@ async function MEASURE() {
     border();
     htab(8); vtab(1); pr('       Measurement      '); htab(9); vtab(7); pr('Exponents'); htab(23); vtab(7); pr('Temperature');
     htab(15); vtab(12); pr('Length'); htab(36); vtab(12); pr('Mass');
-    htab(5); vtab(18); pr('Use  &  { keys to move pointer.'); htab(7); vtab(20); pr('Press RETURN key to select.');
-    htab(3); vtab(22); pr('Press ESC to return to Briefing Menu.');
+    htab(5); vtab(18); pr('Use  &  { keys to move pointer.'); htab(12); vtab(20); pr('Tap OK to select.');
+    htab(3); vtab(22); pr('Tap Back to return to Briefing Menu.');
     arrow();
     const go = t => { const ks = []; for (let i = HP; i < t; i++) ks.push(21); for (let i = HP; i > t; i--) ks.push(8); ks.push(13); pushKey(...ks); };
     const hotM = [
@@ -1484,7 +1484,7 @@ async function MEASURE() {
       htab(4); vtab(8); pn('Would you like to be quizzed'); htab(4); pr('on exponents? ', chr(127));
       let B = '';
       for (;;) {
-        const k = await getKey({ yn: true, del: true, ret: true, esc: true });
+        const k = await getKey({ yn: true, esc: true });
         const a = typeof k === 'number' ? chr(k) : '';
         if (k === 27) { C10k(); return 'back'; }
         if (k === 8 || k === 127 || k === 13) { if (B === '') continue; }
@@ -1598,7 +1598,7 @@ async function MEASURE() {
       const hotD = rows.slice(1).map((r, i) => rowHot(r, 5, 34, [49 + i, 13]));
       let B = '';
       for (;;) {
-        const k = await getKey({ digits: '12345678', del: true, ret: true, esc: true, hot: hotD });
+        const k = await getKey({ digits: '12345678', pick: true, esc: true, hot: hotD });
         const a = typeof k === 'number' ? chr(k) : '';
         if (k === 27) { C10k(); return true; }
         if ((k === 13 || k === 8 || k === 127) && B === '') continue;
@@ -1745,7 +1745,7 @@ async function ASTRONOMY() {
     vtab(8); for (let z = 1; z <= 7; z++) { htab(5 * z - 1); pr(ST[z - 1]); }
     pr(chr(18));
     htab(11); vtab(14); pr('Pick a star to study.'); htab(6); vtab(20); pr('Use  & {  keys to make selection.');
-    htab(4); vtab(22); pr('Press RETURN key to make selection.'); arrow();
+    htab(6); vtab(22); pr('Tap OK to make your selection.'); arrow();
     htab(37); vtab(8); pr('Go'); vtab(9); htab(37); pr('on');
     const go = t => { const ks = []; for (let i = HP; i < t; i++) ks.push(21); for (let i = HP; i > t; i--) ks.push(8); ks.push(13); pushKey(...ks); };
     const hotS = [1, 2, 3, 4, 5, 6, 7, 8].map(i => ({ x0: i === 8 ? 245 : (5 * i - 4) * 7, x1: i === 8 ? 280 : (5 * i + 1) * 7, y0: 24, y1: 96, k: () => go(i) }));
@@ -1851,7 +1851,7 @@ async function ASTRONOMY() {
           htab(h); vtab(8); pr(a * MP);
         }
         htab(11); vtab(9); pr('Distance in A.U.s'); htab(3); vtab(12); pr('Use the &  { keys to move the arrow.');
-        vtab(17); htab(4); pr('Press the RETURN key when you think'); htab(3); vtab(14); pr('(The arrow represents your planet.)');
+        vtab(17); htab(10); pr('Tap OK when you think'); htab(3); vtab(14); pr('(The arrow represents your planet.)');
         htab(8); vtab(19); pr('the planet is receiving as'); htab(11); vtab(21); pr('much energy as Earth.'); vtab(6); htab(3); pr('$');
         let AP = 3, OA = 3;
         let H = HP; if (H > 3) { H--; if (HP > 4) { H--; if (HP > 5) { H -= 2; if (HP > 6) H--; } } }
@@ -1963,7 +1963,7 @@ async function PLANETS() {
       // 1900
       blit(20, 2, 11, 32, 33, 0x1AC4);
       htab(37); vtab(3); pr('Go'); vtab(4); htab(37); pr('On');
-      vtab(10); htab(3); pr('Use the & { keys to move the pointer.'); vtab(13); htab(6); pr('Press RETURN to get information');
+      vtab(10); htab(3); pr('Use the & { keys to move the pointer.'); vtab(13); htab(8); pr('Tap OK to get information');
       htab(13); vtab(15); pr('about that planet.'); vtab(20); htab(3); pr('(Planets and distances not to scale)');
       htab(10); vtab(7); pr('Pointing to:'); htab(24); pr(C$[HP - 1]);
       hcolor(3); hplot(150, 56, 150, 45, 151, 45, 151, 56, 220, 56, 220, 45, 221, 45, 221, 56, 150, 56);
@@ -2021,7 +2021,7 @@ async function LIFEHELP() {
     () => pg(['The key idea in the life briefing', 'is that in life on Earth, STRUCTURE,', 'FUNCTION, and ENVIRONMENT are all', 'closely related.  All life has',
       'characteristics, or STRUCTURES, that', 'help the organism FUNCTION and live', 'in its particular ENVIRONMENT.', 'For each section, try to come up with',
       'organisms that you are familiar with.'], () => { C1(); vtab(4); }),
-    () => pg(['You will now be given a list of', 'phyla to investigate.', 'Use the &  and  { keys to pick', 'a Phylum to study, then press RETURN.',
+    () => pg(['You will now be given a list of', 'phyla to investigate.', 'Use the &  and  { keys to pick', 'a Phylum to study, then tap OK.',
       '^When you select Phylum Chordata,', 'the list of Phyla will be replaced', "with a list of 'Classes' that are", 'under Phylum Chordata.'], () => vtab(4)),
   ];
   { let i = 0; while (i < intro.length) { const bs = await intro[i](); if (bs) { if (i === 0) { await pleaseWait(); throw new Run('MUN'); } i--; } else i++; } }
@@ -2029,7 +2029,7 @@ async function LIFEHELP() {
   let VT = 6, OV = 6, OH = 0, CL = 0;
   const trunk = () => { hcolor(7); hplot(140, 168, 140, 0, 139, 0, 139, 168, 138, 168, 138, 0, 141, 0, 141, 168); };
   const arrowOR = (y, x) => { blitMode = 'or'; blit(y, x, 13, 2, 24, 0x1012); blitMode = 'copy'; };
-  const instructions = () => { vtab(22); htab(5); pn('Use the &  { keys to move arrow.'); htab(5); pn('Press RETURN to make selection.'); htab(10); pr('Press ESC to go on.'); };
+  const instructions = () => { vtab(22); htab(5); pn('Use the &  { keys to move arrow.'); htab(5); pn('Tap OK to make a selection.'); htab(9); pr('Tap Go On for the quiz.'); };
 
   function drawPhyla() {   // 80, 85
     cls();
@@ -2096,7 +2096,7 @@ async function LIFEHELP() {
     placeArrow();
     let k;
     for (;;) {
-      k = await getKey({ ud: true, ret: true, esc: true, hot: treeHot() });
+      k = await getKey({ ud: true, ret: true, esc: true, escLabel: 'Go On', hot: treeHot() });
       if (k === 27) { await quiz(); return; }
       if ([8, 11, 65, 97].includes(k)) { if (CL === 1 && VT === 1) continue; if (VT > 0) { VT--; break; } continue; }
       if ([21, 10, 122, 90].includes(k)) { if (VT < 6) { VT++; break; } continue; }
