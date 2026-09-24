@@ -99,7 +99,12 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
   .keypad .key { height: 36px; min-height: 34px; }
   .dpad .key { height: 40px; }
 }
+/* portrait: breathing room below the status bar / Dynamic Island (there is spare height) */
+@media (orientation: portrait) {
+  #app { padding-top: calc(env(safe-area-inset-top, 0px) + var(--gap) + 6px); }
+}
 @media (orientation: portrait) and (min-height: 701px) {
+  #app { padding-top: calc(env(safe-area-inset-top, 0px) + var(--gap) + 28px); }
   .keypad { grid-template-columns: repeat(3, 78px); }
   .keypad .key { height: 56px; }
   .dpad .key { width: 78px; height: 64px; }
