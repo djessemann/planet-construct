@@ -1,8 +1,6 @@
 # Planetary Construction Set
 
-
-Quick n dirty HTML version of the old educational program Planetary Construction Set.
-A classic Apple II educational game, rebuilt as a mobile web app.
+Quick n dirty HTML version of the old educational program Planetary Construction Set, rebuilt as a mobile web app.
 
 Play: https://djessemann.github.io/planet-construct/
 
