@@ -39,7 +39,7 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--page); overflow: hidden; overscroll-behavior: none; }
-body { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 #app {
   position: fixed; inset: 0; display: flex; flex-direction: column;
   padding: calc(env(safe-area-inset-top, 0px) + var(--gap)) calc(env(safe-area-inset-right, 0px) + var(--gap))
@@ -63,9 +63,9 @@ body { -webkit-user-select: none; user-select: none; touch-action: manipulation;
   box-shadow: 3px 3px 0 var(--key-edge); font: inherit; margin: 0 3px 3px 0;
 }
 .key canvas { display: block; image-rendering: pixelated; pointer-events: none; }
-.key.down { background: var(--key-down-bg); box-shadow: none; transform: translate(3px, 3px); }
-.key.down canvas { filter: invert(1); }
-@media (prefers-color-scheme: light) { .key.down canvas { filter: invert(1) sepia(.2); } }
+.key.pressed { background: var(--key-down-bg); box-shadow: none; transform: translate(3px, 3px); }
+.key.pressed canvas { filter: invert(1); }
+@media (prefers-color-scheme: light) { .key.pressed canvas { filter: invert(1) sepia(.2); } }
 .key:focus-visible { outline: 2px dashed var(--key-ink); outline-offset: 3px; }
 #menuKey { flex: 0 0 auto; }
 .dpad { display: grid; gap: var(--gap); }
@@ -299,7 +299,7 @@ async function getKey(opts = {}) {
   for (;;) {
     if (keyQ.length) {
       const c = keyQ.shift();
-      if (c === 5 && !opts.rawE) { flushKeys(); await pleaseWait(); throw new Run('MUN'); }
+      if (c === 5 && !opts.rawE) { flushKeys(); G.p8040 = 0; await pleaseWait(); throw new Run('MUN'); }
       return c;
     }
     await new Promise(r => { waiter = r; });
@@ -397,20 +397,26 @@ function mkKey(label, code, cls = '', aria) {
   b.appendChild(glyphLabel(label));
   let t1 = null, t2 = null;
   const fire = () => pushKey(code);
-  const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove('down'); };
+  const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; b.classList.remove('pressed'); keyStops.delete(stop); };
   b.addEventListener('pointerdown', e => {
-    e.preventDefault(); b.classList.add('down'); fire();
+    e.preventDefault(); b.classList.add('pressed'); keyStops.add(stop); fire();
     if (cls.includes('rep')) t1 = setTimeout(() => { t2 = setInterval(fire, 70); }, 380);
   });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
   b.addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); fire(); } });
   return b;
 }
+const keyStops = new Set();
+const stopAllKeys = () => { for (const f of [...keyStops]) f(); };
+window.addEventListener('pointerup', stopAllKeys);
+window.addEventListener('blur', stopAllKeys);
+document.addEventListener('visibilitychange', stopAllKeys);
 let lastDeckSig = '';
 function setDeck(o) {
   const sig = JSON.stringify([o.digits, o.dot, o.minus, o.yn, o.lr, o.ud, o.ret, o.del, o.esc, o.help, o.any, o.menuOff, ink()]);
   if (sig === lastDeckSig) return;
   lastDeckSig = sig;
+  stopAllKeys();
   const main = document.getElementById('dmain'), util = document.getElementById('dutil');
   main.innerHTML = ''; util.innerHTML = '';
   document.getElementById('menuKey').style.visibility = o.menuOff ? 'hidden' : 'visible';
@@ -548,8 +554,7 @@ async function MUN() {
       vtab(10); items.forEach((t, i) => { htab(10); pn(t); if (i < 5) pn(); });
       htab(4); vtab(6); pr('Which would you like? ', chr(127));
       const hr = items.map((t, i) => rowHot(10 + i * 2, 9, 32, [49 + i, 13]));
-      const B = await menuInput(6, 26, 6, hr, { esc: true });
-      if (B === 'esc') { G.p8040 = 0; throw new Run('MUN'); }
+      const B = await menuInput(6, 26, 6, hr);
       clrw(); vtab(4);
       FC = VAL(B);
       if (FC === 5) { if (await descriptions()) { FC = 0; continue; } FC = 0; continue; }
@@ -565,9 +570,9 @@ async function MUN() {
     htab(4); vtab(6); pr('Which would you like? ', chr(127));
     const sub = ['1) Measurement Briefing', '2) Star Briefing', '3) Planet Briefing', '4) Return to Main Menu'];
     vtab(10); sub.forEach((t, i) => { htab(10); pn(t); if (i < 3) pn(); });
-    const B = await menuInput(6, 26, 4, sub.map((t, i) => rowHot(10 + i * 2, 9, 34, [49 + i, 13])));
+    const B = await menuInput(6, 26, 4, sub.map((t, i) => rowHot(10 + i * 2, 9, 34, [49 + i, 13])), { esc: true });
     clrw(); vtab(4);
-    const f = VAL(B);
+    const f = B === 'esc' ? 4 : VAL(B);
     if (f === 4) { G.p8040 = 0; throw new Run('MUN'); }
     throw new Run({ 1: 'MEASURE', 2: 'ASTRONOMY', 3: 'PLANETS' }[f]);
   }
@@ -588,7 +593,7 @@ async function descriptions() {
 }
 async function theEnd() {
   let B = '';
-  vtab(9); htab(2); pn('Would you like to use'); htab(2); pr('use another disk? ', chr(127));
+  vtab(9); htab(2); pn('Would you like to'); htab(2); pr('use another disk? ', chr(127));
   for (;;) {
     const k = await getKey({ yn: true, del: true, ret: true });
     const a = chr(k);
@@ -781,9 +786,10 @@ async function LEVELONE() {
     let B = '', PF = 0;
     for (;;) {
       htab(h + B.length); vtab(v); pr(chr(127));
-      const k = await getKey({ digits: 'pad', dot: rule !== 'incl', del: true, ret: true, help: true });
+      const k = await getKey({ digits: 'pad', dot: rule !== 'incl', del: true, ret: true, esc: true, help: true });
       const a = chr(k);
       if (k === 13) return B;
+      if (k === 27) return '';
       if (a === 'H' || a === 'h') { await help(); redraw(); B = ''; PF = 0; continue; }
       if (rule === 'incl') {
         if (k === 8 || k === 127) {
@@ -802,8 +808,8 @@ async function LEVELONE() {
         continue;
       }
       if (!/[0-9]/.test(a)) continue;
-      if (rule === 'mass' ? B.length > 2 : B.length > 1 + PF) continue;
-      B += a; vtab(v); htab(h); pr(B, rule === 'mass' ? ' ' : '  ');
+      if (B.length > 2 + PF) continue;
+      B += a; vtab(v); htab(h); pr(B, '  ');
     }
   }
 
@@ -860,7 +866,8 @@ async function LEVELONE() {
       draw();
       const hotStars = [1, 2, 3, 4, 5, 6, 7].map(i => ({ x0: (5 * i - 2) * 7, x1: (5 * i + 3) * 7, y0: 26, y1: 96, k: [{ star: i }] }));
       for (;;) {
-        const k = await getKey({ lr: true, ret: true, help: true, hot: hotStars });
+        const k = await getKey({ lr: true, ret: true, esc: true, help: true, hot: hotStars });
+        if (k === 27) { clrw(); break; }
         if (typeof k === 'object') { erase(); HP = k.star; arrow(); await sleep(120); pushKey(13); continue; }
         const a = chr(k);
         if (a === 'H' || a === 'h') {
@@ -914,7 +921,7 @@ async function LEVELONE() {
         htab(14); vtab(14); pn('Mercury =  0~'); htab(14); pn('Earth   = 23~'); htab(14); pn('Mars    = 24~'); htab(14); pn('Jupiter =  3~'); htab(14); pn('Saturn  = 27~'); htab(14); pn('Uranus  = 98~');
       };
       draw();
-      let C = await numField(10, 29, 'incl', () => helpPage(['Enter the inclination that', 'you want your planet to have.', '^The inclination is the angle', 'at which the planet rotates.', '^The Earth is slightly inclined', 'and that is why we have seasons;', 'in summer the the North pole is', 'tipped toward the Sun and in winter', 'the South pole is toward the Sun.']), draw);
+      let C = await numField(10, 29, 'incl', () => helpPage(['Enter the inclination that', 'you want your planet to have.', '^The inclination is the angle', 'at which the planet rotates.', '^The Earth is slightly inclined', 'and that is why we have seasons;', 'in summer the North pole is', 'tipped toward the Sun and in winter', 'the South pole is toward the Sun.']), draw);
       if (C !== '') {
         let c = VAL(C); let cs = STR(c);
         if (c > 360) { c = INT(((c / 360) - INT(c / 360)) * 360 + .5); cs = STR(c); }
@@ -931,21 +938,24 @@ async function LEVELONE() {
       let C = '';
       for (;;) {
         htab(24); vtab(9); pr(chr(127));
-        const k = await getKey({ yn: true, help: true });
+        const k = await getKey({ yn: true, esc: true, help: true });
         const a = chr(k);
+        if (k === 27) { C = ''; break; }
         if (a === 'Y' || a === 'y') { C = 'Y'; vtab(9); htab(24); pr('Yes', chr(127)); }
         else if (a === 'N' || a === 'n') { C = 'N'; vtab(9); htab(24); pr('No', chr(127)); }
         else if (a === 'H' || a === 'h') { await helpPage(['You decide whether or not your planet', 'will have any moons.', '^Moons are responsible for ', 'tides which help to reshape', "the planet's surface."]); draw(); continue; }
         else continue;
         let back = false;
         for (;;) {
-          const k2 = await getKey({ ret: true, del: true });
+          const k2 = await getKey({ ret: true, del: true, esc: true });
           if (k2 === 13) break;
+          if (k2 === 27) { C = ''; break; }
           if (k2 === 8 || k2 === 127) { htab(24); vtab(9); pr('    '); back = true; break; }
         }
         if (!back) break;
       }
-      if (C === 'N') { S[5] = 1; MO = 0; MM = 0; A$[5][1] = 'No moons'; }
+      if (C === '') { /* ESC: keep the current setting */ }
+      else if (C === 'N') { S[5] = 1; MO = 0; MM = 0; A$[5][1] = 'No moons'; }
       else { S[5] = 1; MO = 1; MM = 1; A$[5][1] = 'Moons'; }
       clrw();
     } else if (D === 8) { // Build
@@ -1094,7 +1104,7 @@ async function CONSTRUCT() {
     } else if (TP === 5) {
       DE[ND] = 'You have built a planet that is not'; DE[ND + 1] = 'like any planet that we know of.'; ND += 2; DE[ND] = 'You have built ';
       const f = i => EL[i] / pq;
-      if (f(2) > .60) { DEs = 'a gaint diamond.'; DE[ND] += DEs; }
+      if (f(2) > .60) { DEs = 'a giant diamond.'; DE[ND] += DEs; }
       else if (f(5) > .25 && f(9) > .25) { DE[ND] = DE[ND] + DEs + ' a giant crystal'; DEs = 'of table salt.'; ND++; DE[ND] = (DE[ND] || '') + DEs; }
       else if (f(10) > .25 || f(11) > .25 || (f(6) > .25 && f(9) > .25)) { DE[ND] += 'a giant crystal of'; DE[ND + 1] = 'rock salt.'; ND++; }
       else if (f(7) > .25 && f(4) > .25) { DEs = 'a giant glass ball.'; DE[ND] += DEs; }
@@ -1301,7 +1311,8 @@ async function ALIENS() {
     for (;;) {
       let digits = mode.sf ? '1234' : mode.cf ? '12' : '123';
       if (OP) digits = 'pad';
-      const k = await getKey({ digits, del: true, ret: true, hot: OP ? [] : hotRows });
+      const k = await getKey({ digits, del: true, ret: true, esc: true, hot: OP ? [] : hotRows });
+      if (k === 27) return 'esc';
       if (k === 20) {                                      // CTRL-T: pick any alien by number
         if (mode.sf || mode.cf || B !== '') continue;
         OP = 1; row = 22; vtab(22); htab(3); pr('Which alien do you want? ', chr(127), '  ');
@@ -1338,7 +1349,9 @@ async function ALIENS() {
     vtab(7); htab(8); pn('1) Andromeda Galaxy'); pn(); htab(8); pn('2) Draco Galaxy'); pn(); htab(8); pn('3) Large Magellanic Cloud');
     pn(); htab(8); pn('4) Orion Nebula'); vtab(17); htab(6); pn('Where should'); htab(6); pr('your alien come from? ', chr(127));
     const gHot = [7, 9, 11, 13].map((r, i) => rowHot(r, 7, 34, [49 + i, 13]));
-    const PA = VAL(await input(18, { sf: 1 }, gHot));
+    const gi = await input(18, { sf: 1 }, gHot);
+    if (gi === 'esc') { await pleaseWait(); throw new Run('MUN'); }
+    const PA = VAL(gi);
     do { BL = AL[INT(RND() * 5) + (PA - 1) * 5] - 1; } while (BL === OB);
 
     show: for (;;) {    // 100: show alien BL
@@ -1372,7 +1385,7 @@ async function ALIENS() {
         const oHot = [15, 17, 19].map((r, i) => rowHot(r, 5, 40, [49 + i, 13]));
         const r = await input(22, {}, oHot);
         if (typeof r === 'object') { BL = AL[r.pick - 1] - 1; continue show; }
-        if (r === '1') continue galaxy;
+        if (r === '1' || r === 'esc') continue galaxy;
         if (r === '3') {
           G.p8090 = 0; G.p8091 = BL + 1; G.saved = null;
           throw new Run('LEVELONE');
@@ -1394,9 +1407,9 @@ async function ALIENS() {
           vtab(18); htab(6); pn('1) New clue'); pn(); htab(6); pn('2) Return to option menu');
           const cHot = [18, 20].map((r, i) => rowHot(r, 5, 34, [49 + i, 13]));
           let b;
-          do { b = await input(23, { cf: 1 }, cHot); } while (b !== '1' && b !== '2');
+          do { b = await input(23, { cf: 1 }, cHot); } while (b !== '1' && b !== '2' && b !== 'esc');
           clear13();
-          if (b === '2') continue opts;
+          if (b !== '1') continue opts;
         }
       }
     }
@@ -1559,7 +1572,7 @@ async function MEASURE() {
     const p800 = () => page(['The two units of length that you', 'will need to know are:', '^the CENTIMETER (cm) which is about', 'the width of the small finger nail.',
       '^And the METER (m) which is about', 'the height of a bicycle.', '^One METER is 100 CENTIMETERS.']);
     const p870 = () => page(['In addition to Metric measurements,', 'scientists also use non-Metric', 'units to measure vast distances.', () => vtab(11), '',
-      'These units are the', 'Astronmical Unit (AU)', 'and the', 'Light Year (ly)'], () => vtab(5));
+      'These units are the', 'Astronomical Unit (AU)', 'and the', 'Light Year (ly)'], () => vtab(5));
     const p930 = () => page([() => vtab(4), 'An Astronomical Unit is equal to', 'the distance from Earth to the Sun:', () => vtab(11), '(150 thousand million meters).',
       () => { vtab(8); htab(14); sci('1.5 x 10', '11'); vtab(9); pr(' m'); vtab(19); }, '', () => vtab(15), 'A Light Year is the distance that',
       () => vtab(17), 'light travels in a year: 63200 AUs', '(95 hundred million million meters).'], () => vtab(6));
@@ -1608,10 +1621,10 @@ async function MEASURE() {
     const UQ = new Array(21).fill(0);
     let NQ = 0, CP = 0; const TQ = INT(RND() * 7) + 4;
     const LQ = [, ['The width of the small finger nail', '.01'], ['The height of a bicycle', '1'], ['The smallest grains of sand', '.0006'],
-      ['The height of the Eifel Tower', '300'], ['The length of a football field', '97'], ['The length of a blue whale', '33'],
+      ['The height of the Eiffel Tower', '300'], ['The length of a football field', '97'], ['The length of a blue whale', '33'],
       ["The height of Egypt's Great Pyramid", '146'], ['The thickness of a dime', '.001'], ['The width of a pencil', '.01'],
       ['The height of a 10-speed bike', '1'], ['The width of a diskette', '.1'], ['The width of a human hair', '.0001'],
-      ['The height of Kareem-Abdul Jabar', '2.3'], ['The diameter of an aspirin', '.01'], ['The thickness of a diskette', '.001'],
+      ['The height of Kareem Abdul-Jabbar', '2.3'], ['The diameter of an aspirin', '.01'], ['The thickness of a diskette', '.001'],
       ['The thickness of a sheet of paper', '.0001'], ['The width of the computer', '.30'], ['The width of a four lane street', '10'],
       ['The length of an olympic pool', '50'], ['The height of a 30 story building', '100']];
     const TQs = [, ['Absolute zero', '0'], ['The freezing point of water', '273'], ['The boiling point of water', '373'], ['The boiling point of lead', '770'],
@@ -1619,7 +1632,7 @@ async function MEASURE() {
       ["Venus' surface temperature", '750'], ['The burning point of paper', '500'], ['Average temperature of space', '3'],
       ['Normal human body temperature', '310'], ["Pluto's surface temperature", '40']];
     for (;;) {                                         // 9010
-      let Q; do { Q = INT(RND() * 20) + 1; } while (UQ[Q] === 1);
+      let Q; do { Q = INT(RND() * (TE ? 13 : 20)) + 1; } while (UQ[Q] === 1);
       const R = INT(RND() * 2) + 1; let TS = 0, TT = 0;
       if (NQ > TQ || CP > 4) return;
       UQ[Q] = 1; NQ++;
@@ -1653,7 +1666,7 @@ async function MEASURE() {
         if (TE) { htab(16 - B.length); pr('     ', B, '~K      '); }
         let ok = false;
         if (TE) ok = VAL(B) === VAL(AN);
-        else ok = (R === 2 && VAL(B) === VAL(AN) * 100) || (R === 1 && B === fmt(VAL(AN) / 100)) || VAL(B) === VAL(AN) / 100 ||
+        else ok = (R === 2 && VAL(B) === VAL(AN) * 100) || (R === 1 && B === fmt(VAL(AN) / 100)) ||
           fmt(VAL(B)) === ANs[3 - R] || VAL(B) === VAL(ANs[3 - R]);
         if (ok) { htab(16); vtab(20); pr('Correct!'); CP++; await waitRet(false); C10k(); break; }
         if (TE) {                                       // 9700 hint
@@ -1737,7 +1750,7 @@ async function ASTRONOMY() {
     const go = t => { const ks = []; for (let i = HP; i < t; i++) ks.push(21); for (let i = HP; i > t; i--) ks.push(8); ks.push(13); pushKey(...ks); };
     const hotS = [1, 2, 3, 4, 5, 6, 7, 8].map(i => ({ x0: i === 8 ? 245 : (5 * i - 4) * 7, x1: i === 8 ? 280 : (5 * i + 1) * 7, y0: 24, y1: 96, k: () => go(i) }));
     for (;;) {
-      const k = await getKey({ lr: true, ret: true, hot: hotS });
+      const k = await getKey({ lr: true, ret: true, esc: true, hot: hotS });
       if (k === 8 && HP === 1) continue;
       if (k === 21 && HP === 8) continue;
       if (k === 8 || k === 21) {
@@ -1745,7 +1758,8 @@ async function ASTRONOMY() {
         htab(e); vtab(11); pr('   '); vtab(12); htab(e); pr('   ');
         HP += k === 21 ? 1 : -1; arrow(); continue;
       }
-      if (k === 13 || k === 27) break;
+      if (k === 27) { HP = 8; break; }
+      if (k === 13) break;
     }
     C10h(); return HP;
   }
@@ -1754,7 +1768,8 @@ async function ASTRONOMY() {
     // 90: Stars menu
     C10h(); vtab(1); htab(8); pr('         Stars        '); htab(4); vtab(7); pn('Which would you like'); htab(4); pr('to investigate? ', chr(127));
     htab(10); vtab(11); pn('1) Star Formation'); pn(); htab(10); pn('2) Star Types'); pn(); htab(10); pn('3) Energy From The Sun'); pn(); htab(10); pn('4) Return To Briefing Menu');
-    const B = VAL(await menuInput(8, 20, 4, [11, 13, 15, 17].map((r, i) => rowHot(r, 9, 38, [49 + i, 13]))));
+    const Bi = await menuInput(8, 20, 4, [11, 13, 15, 17].map((r, i) => rowHot(r, 9, 38, [49 + i, 13])), { esc: true });
+    const B = Bi === 'esc' ? 4 : VAL(Bi);
     if (B === 4) { await pleaseWait(); throw new Run('MUN'); }
     C10h();
     if (B === 1) await formation();
@@ -1884,7 +1899,8 @@ async function PLANETS() {
     htab(10); vtab(9);
     const items = ['1) Planet Classifications', '2) Planet Types', '3) Planet Atmosphere', '4) Planet Inclination / Moons', '5) Planet Climate', '6) Planet Summary', '7) Return To Briefing Menu'];
     items.forEach((t, i) => { if (i) pn(); htab(10); pn(t); });
-    const B = VAL(await menuInput(6, 20, 7, items.map((t, i) => rowHot(9 + i * 2, 9, 39, [49 + i, 13]))));
+    const Bi = await menuInput(6, 20, 7, items.map((t, i) => rowHot(9 + i * 2, 9, 39, [49 + i, 13])), { esc: true });
+    const B = Bi === 'esc' ? 7 : VAL(Bi);
     if (B === 7) { await pleaseWait(); throw new Run('MUN'); }
     C10h();
     if (B === 1) await chain([
@@ -1901,7 +1917,7 @@ async function PLANETS() {
       () => pg(['Rocky planets are composed of Oxygen,', 'Silicon, and Iron and usually are', 'less than 5 Earth masses.', 'Gaseous planets are composed of',
         'Hydrogen and Helium and mass', 'more than 50 Earth masses.', 'Icy Planets are composed of Hydrogen,', 'Helium, and Carbon and have masses',
         'between .1 and 50 Earth masses.'], () => { vtab(1); htab(14); pr('Planet Types'); vtab(4); }),
-      () => pg(['In addition to the planets that we', 'are familiar with, you will be able', 'build other types of planets.', "^These are 'BROWN DWARF STARS' and",
+      () => pg(['In addition to the planets that we', 'are familiar with, you will be able', 'to build other types of planets.', "^These are 'BROWN DWARF STARS' and",
         "'ASTEROIDS'.  Brown dwarf stars are", 'planets similar to Jupiter but with', 'much greater masses.  Asteroids are', 'very small planets.'], () => vtab(4)),
       () => pg(['You will be able to make not only the', 'planets in our solar system,', 'brown dwarf stars, and asteroids,', 'but also planets that are unlike',
         'anything we have seen.', '^If you try to make a planet that is', 'too unlike anything we know, it will', "be labeled as 'NOT PROBABLE'."], () => vtab(4)),
@@ -1986,7 +2002,7 @@ async function LIFEHELP() {
   memReset(); cls(); DBL = false;
   bload('ASSORTED', 0x1000);
   const LH = D.LH, PV = LH.PV, CV = LH.CV, AN = LH.AN, DE = LH.DE, EN = LH.EN;
-  const PH = [, 'Porifera', 'Cnidaria', 'Platyhelmenthes', 'Mollusca', 'Arthropoda', 'Echinodermata', 'Chordata'];
+  const PH = [, 'Porifera', 'Cnidaria', 'Platyhelminthes', 'Mollusca', 'Arthropoda', 'Echinodermata', 'Chordata'];
   const CL$ = ['Osteichthyes', 'Amphibia', 'Reptilia', 'Aves', 'Mammalia'];
   const C1 = () => { clrw(1, 23, 0, 40); };      // GOSUB 10000 here: rows 2-23, full width
   const pg = async (arr, pre) => { if (pre) pre(); lines(arr); const bs = await waitRet(true); C1(); return bs; };
@@ -2008,7 +2024,7 @@ async function LIFEHELP() {
     () => pg(['You will now be given a list of', 'phyla to investigate.', 'Use the &  and  { keys to pick', 'a Phylum to study, then press RETURN.',
       '^When you select Phylum Chordata,', 'the list of Phyla will be replaced', "with a list of 'Classes' that are", 'under Phylum Chordata.'], () => vtab(4)),
   ];
-  { let i = 0; while (i < intro.length) { const bs = await intro[i](); if (bs) { if (i > 0) i--; } else i++; } }
+  { let i = 0; while (i < intro.length) { const bs = await intro[i](); if (bs) { if (i === 0) { await pleaseWait(); throw new Run('MUN'); } i--; } else i++; } }
 
   let VT = 6, OV = 6, OH = 0, CL = 0;
   const trunk = () => { hcolor(7); hplot(140, 168, 140, 0, 139, 0, 139, 168, 138, 168, 138, 0, 141, 0, 141, 168); };
@@ -2146,7 +2162,7 @@ async function LIFEHELP() {
     let i = 0;
     while (i < S.length) {
       const bs = await pg(S[i][1], S[i][0]);
-      if (bs) { if (i === 0) { if (c === 5) { cls(); return; } i++; } else i--; } else i++;
+      if (bs) { if (i === 0) { cls(); return; } i--; } else i++;
     }
     cls();
   }

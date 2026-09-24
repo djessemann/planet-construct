@@ -1,6 +1,7 @@
-// Offline cache. Serves the cached copy right away, then refreshes it in the
-// background so the next launch picks up any new version.
-const CACHE = 'planets-v1';
+// Offline cache. The page itself is fetched fresh when online (so updates show
+// up right away) and falls back to the cached copy when offline. Icons and other
+// files are served from cache and refreshed in the background.
+const CACHE = 'planets-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-32.png'];
 
 self.addEventListener('install', e => {
@@ -16,8 +17,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(caches.open(CACHE).then(async c => {
-    const hit = await c.match(e.request, { ignoreSearch: true });
     const net = fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; });
+    if (e.request.mode === 'navigate') {
+      return net.catch(async () => (await c.match(e.request, { ignoreSearch: true })) || c.match('index.html'));
+    }
+    const hit = await c.match(e.request, { ignoreSearch: true });
     if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
     return net;
   }));
